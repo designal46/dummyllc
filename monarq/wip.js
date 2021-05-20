@@ -1,8 +1,5 @@
 // note: was not able to use the import syntax, but the const + require language did work
 // import { graphql, buildSchema, makeExecutableSchema } from 'graphql'
-const graphql = require('graphql');
-const path = require('path');
-const fs = require('fs');
 import schema from '../graphql/schema';
 import { manifest } from './dummyManifestAndQueryObj.js';
 
@@ -27,21 +24,33 @@ const scalarTypes = ['String', 'Int', 'ID', 'Boolean', 'Float', ...customScalars
 
 
 
-/************************************************* 
-***** FINAL QUERY OBJECT OUTPUT FUNCTION *********
-**************************************************/
+/******************************************************** 
+***** FINAL ARGS & QUERY OBJECT OUTPUT FUNCTION *********
+*********************************************************/
 
-function queryObject(manifest, schema) {
+function queryMap(manifest, schema) {
   const endPoints = manifest.endpoints;
-  let returnObj = {};
+  const argsObj = {};
+  const queryObj = {};
   for (const path in endPoints) {
     for (const action in endPoints[path]) {
       const operationName = endPoints[path][action].operation
-      returnObj[operationName] = generateQuery(schema, operationName);
+      
+      // generate the args object
+      const typeSchema = typeChecker(schema, operationName)[1]
+      const operationFields = typeSchema[operationName];
+      const varObj = grabArgs(schema, operationFields.args)[1];
+      argsObj[operationName] = varObj
+
+      // generate the query object
+      queryObj[operationName] = generateQuery(schema, operationName);
     };
   };
-  return returnObj;
-}
+  return {
+    args: argsObj,
+    queries: queryObj
+  };
+};
 
 
 
@@ -51,18 +60,9 @@ function queryObject(manifest, schema) {
 
 function generateQuery(schema, operation) {
   // first figure out whether it is a query or mutation
-  let operationType;
-  let typeSchema;
-  const querySchema = schema.getQueryType().getFields();
-  const mutationSchema = schema.getMutationType().getFields();
-  if (Object.keys(querySchema).includes(operation)) {
-    operationType = 'Query';
-    typeSchema = querySchema;
-  };
-  if (Object.keys(mutationSchema).includes(operation)) {
-    operationType = 'Mutation';
-    typeSchema = mutationSchema;
-  };
+  const typeInfo = typeChecker(schema, operation)
+  const operationType = typeInfo[0];
+  const typeSchema = typeInfo[1];
 
   // now look for all of the fields that need to be specified for the operation
   let returnFields = {};
@@ -108,11 +108,50 @@ function generateQuery(schema, operation) {
   return returnString;
 }
 
+/********************************** 
+***** ARGS DICTIONARY FUNCTION ****
+***********************************/
 
+function argsObjGen(schema, manifest) {
+  const endPoints = manifest.endpoints;
+  let argsObj = {};
+  for (const path in endPoints) {
+    for (const action in endPoints[path]) {
+      const operationName = endPoints[path][action].operation
+      const typeSchema = typeChecker(schema, operationName)[1]
+      const operationFields = typeSchema[operationName];
+      const varObj = grabArgs(schema, operationFields.args)[1];
+      argsObj[operationName] = varObj
+    };
+  };
+  return argsObj;
+}
+
+// console.log('argsObj', argsObjGen(schema, manifest));
+
+// console.log('query schema', schema.getType('Author').getFields());
 
 /************************** 
 ***** HELPER FUNCTIONS ****
 ***************************/
+
+/* checks whether the operation is a query or mutation and returns that */
+function typeChecker(schema, operation) {
+  let operationType;
+  let typeSchema;
+  const querySchema = schema.getQueryType().getFields();
+  const mutationSchema = schema.getMutationType().getFields();
+  if (Object.keys(querySchema).includes(operation)) {
+    operationType = 'Query';
+    typeSchema = querySchema;
+  };
+  if (Object.keys(mutationSchema).includes(operation)) {
+    operationType = 'Mutation';
+    typeSchema = mutationSchema;
+  };
+  if (!operationType) throw new Error(`Operation '${operation}' is not defined in the schema`)
+  return [operationType, typeSchema];
+}
 
 /* converts custom type text to simple strings (removes [] and !) */
 function typeTrim(type) {
@@ -202,7 +241,6 @@ function grabArgs(schema, argsArr) {
 /* formats the args string into the arg:$arg format */
 function argsStrFormatter(str) {
   let strArray = str.split(' ');
-  console.log('strArray', strArray)
   const insIndex = strArray.indexOf('{');
   if (insIndex > 0) {
     for (let i = insIndex + 1; i < strArray.length - 1; i++) {
@@ -234,8 +272,8 @@ function varStrBuild(varObj) {
 
 
 
+export { queryMap as default, generateQuery, typeTrim, grabFields, buildString, grabArgs, argsStrFormatter, varStrBuild };
 
-export default queryObject;
 
 
 
